@@ -24,3 +24,11 @@ type PendingCommand struct {
     Executed  bool      `json:"executed"`
     CreatedAt time.Time `json:"created_at"`
 }
+
+type LightEvent struct {
+    ID        int64     `json:"id"`
+    DeviceID  int64     `json:"device_id"`
+    State     string    `json:"state"`
+    Source    string    `json:"source"`
+    CreatedAt time.Time `json:"created_at"`
+}

@@ -48,6 +48,7 @@ func main() {
 
 	dh := handlers.NewDoorHandler(database, mqttClient)
 	dvh := handlers.NewDeviceHandler(database)
+	lh := handlers.NewLightHandler(database, mqttClient)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/door/open", dh.Open)
@@ -56,6 +57,10 @@ func main() {
 
 		r.Post("/devices", dvh.Create)
 		r.Get("/devices", dvh.List)
+
+		r.Post("/lights/on", lh.TurnOn)
+		r.Post("/lights/off", lh.TurnOff)
+		r.Get("/lights/events", lh.Events)
 	})
 
 	port := os.Getenv("PORT")

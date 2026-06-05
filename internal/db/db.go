@@ -42,6 +42,14 @@ func createTables(db *sql.DB) error {
             executed   INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS light_events (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id  INTEGER REFERENCES devices(id),
+            state      TEXT NOT NULL,
+            source     TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `)
     return err
 }
