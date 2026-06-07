@@ -34,9 +34,17 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.HouseID != 0 && !userHasAccess(h.db, userID, body.HouseID) {
-		http.Error(w, "casa no encontrada", http.StatusNotFound)
-		return
+	if body.HouseID != 0 {
+		var houseExists int
+		h.db.QueryRow("SELECT COUNT(*) FROM houses WHERE id = ?", body.HouseID).Scan(&houseExists)
+		if houseExists == 0 {
+			http.Error(w, "casa no encontrada", http.StatusNotFound)
+			return
+		}
+		if !userHasAccess(h.db, userID, body.HouseID) {
+			http.Error(w, "no tienes acceso a esta casa", http.StatusForbidden)
+			return
+		}
 	}
 
 	token, err := generateToken()
@@ -78,8 +86,14 @@ func (h *DeviceHandler) List(w http.ResponseWriter, r *http.Request) {
 	devices := []models.Device{}
 	for rows.Next() {
 		var d models.Device
-		rows.Scan(&d.ID, &d.Name, &d.Token, &d.UserID, &d.HouseID, &d.CreatedAt)
+		if err := rows.Scan(&d.ID, &d.Name, &d.Token, &d.UserID, &d.HouseID, &d.CreatedAt); err != nil {
+			continue
+		}
 		devices = append(devices, d)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "error leyendo dispositivos", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -96,18 +110,44 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.Exec(
-		"DELETE FROM devices WHERE id = ? AND user_id = ?",
-		deviceID, userID,
-	)
+	var ownerID int64
+	err = h.db.QueryRow("SELECT user_id FROM devices WHERE id = ?", deviceID).Scan(&ownerID)
+	if err != nil {
+		http.Error(w, "dispositivo no encontrado", http.StatusNotFound)
+		return
+	}
+	if ownerID != userID {
+		http.Error(w, "no tienes acceso a este dispositivo", http.StatusForbidden)
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		http.Error(w, "error interno", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec("DELETE FROM actuator_events WHERE actuator_id IN (SELECT id FROM actuators WHERE device_id = ?)", deviceID)
 	if err != nil {
 		http.Error(w, "error eliminando dispositivo", http.StatusInternalServerError)
 		return
 	}
 
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		http.Error(w, "dispositivo no encontrado", http.StatusNotFound)
+	_, err = tx.Exec("DELETE FROM actuators WHERE device_id = ?", deviceID)
+	if err != nil {
+		http.Error(w, "error eliminando dispositivo", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = tx.Exec("DELETE FROM devices WHERE id = ?", deviceID)
+	if err != nil {
+		http.Error(w, "error eliminando dispositivo", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "error eliminando dispositivo", http.StatusInternalServerError)
 		return
 	}
 

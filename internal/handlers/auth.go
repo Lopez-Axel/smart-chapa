@@ -47,7 +47,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		http.Error(w, "error interno", http.StatusInternalServerError)
+		return
+	}
 	user := models.User{ID: id, Name: body.Name, Email: body.Email}
 
 	w.Header().Set("Content-Type", "application/json")

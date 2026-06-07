@@ -13,6 +13,10 @@ type House struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	Address   string    `json:"address"`
+	City      string    `json:"city"`
+	Country   string    `json:"country"`
+	Latitude  float64   `json:"latitude"`
+	Longitude float64   `json:"longitude"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -49,5 +53,6 @@ type ActuatorEvent struct {
 	ActuatorID  int64     `json:"actuator_id"`
 	State       string    `json:"state"`
 	Source      string    `json:"source"`
+	Details     string    `json:"details"`
 	CreatedAt   time.Time `json:"created_at"`
 }

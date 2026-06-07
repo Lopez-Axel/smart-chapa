@@ -67,6 +67,7 @@ func main() {
 
 			r.Post("/actuators", acth.Create)
 			r.Get("/actuators", acth.List)
+			r.Get("/actuators/{id}", acth.Get)
 			r.Post("/actuators/{id}/on", acth.TurnOn)
 			r.Post("/actuators/{id}/off", acth.TurnOff)
 			r.Get("/actuators/{id}/events", acth.Events)

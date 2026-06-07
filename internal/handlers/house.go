@@ -24,26 +24,41 @@ func (h *HouseHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(r.Context())
 
 	var body struct {
-		Name    string `json:"name"`
-		Address string `json:"address"`
+		Name      string  `json:"name"`
+		Address   string  `json:"address"`
+		City      string  `json:"city"`
+		Country   string  `json:"country"`
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 		http.Error(w, "nombre requerido", http.StatusBadRequest)
 		return
 	}
 
-	res, err := h.db.Exec(
-		"INSERT INTO houses (name, address) VALUES (?, ?)",
-		body.Name, body.Address,
+	tx, err := h.db.Begin()
+	if err != nil {
+		http.Error(w, "error interno", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
+		"INSERT INTO houses (name, address, city, country, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?)",
+		body.Name, body.Address, body.City, body.Country, body.Latitude, body.Longitude,
 	)
 	if err != nil {
 		http.Error(w, "error creando casa", http.StatusInternalServerError)
 		return
 	}
 
-	houseID, _ := res.LastInsertId()
+	houseID, err := res.LastInsertId()
+	if err != nil {
+		http.Error(w, "error creando casa", http.StatusInternalServerError)
+		return
+	}
 
-	_, err = h.db.Exec(
+	_, err = tx.Exec(
 		"INSERT INTO user_houses (user_id, house_id, role) VALUES (?, ?, 'owner')",
 		userID, houseID,
 	)
@@ -52,7 +67,12 @@ func (h *HouseHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	house := models.House{ID: houseID, Name: body.Name, Address: body.Address}
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "error interno", http.StatusInternalServerError)
+		return
+	}
+
+	house := models.House{ID: houseID, Name: body.Name, Address: body.Address, City: body.City, Country: body.Country, Latitude: body.Latitude, Longitude: body.Longitude}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -63,7 +83,7 @@ func (h *HouseHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(r.Context())
 
 	rows, err := h.db.Query(`
-		SELECT h.id, h.name, h.address, h.created_at
+		SELECT h.id, h.name, h.address, h.city, h.country, h.latitude, h.longitude, h.created_at
 		FROM houses h
 		JOIN user_houses uh ON uh.house_id = h.id
 		WHERE uh.user_id = ?
@@ -76,9 +96,15 @@ func (h *HouseHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	houses := []models.House{}
 	for rows.Next() {
-		var h models.House
-		rows.Scan(&h.ID, &h.Name, &h.Address, &h.CreatedAt)
-		houses = append(houses, h)
+		var house models.House
+		if err := rows.Scan(&house.ID, &house.Name, &house.Address, &house.City, &house.Country, &house.Latitude, &house.Longitude, &house.CreatedAt); err != nil {
+			continue
+		}
+		houses = append(houses, house)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "error leyendo casas", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -158,8 +184,14 @@ func (h *HouseHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	devices := []models.Device{}
 	for rows.Next() {
 		var d models.Device
-		rows.Scan(&d.ID, &d.Name, &d.Token, &d.UserID, &d.HouseID, &d.CreatedAt)
+		if err := rows.Scan(&d.ID, &d.Name, &d.Token, &d.UserID, &d.HouseID, &d.CreatedAt); err != nil {
+			continue
+		}
 		devices = append(devices, d)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "error leyendo dispositivos", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
