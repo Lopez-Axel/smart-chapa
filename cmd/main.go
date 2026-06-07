@@ -12,6 +12,7 @@ import (
 
 	"smart-chapa/internal/db"
 	"smart-chapa/internal/handlers"
+	authmiddleware "smart-chapa/internal/middleware"
 )
 
 func newMQTTClient() mqtt.Client {
@@ -46,21 +47,35 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	dh := handlers.NewDoorHandler(database, mqttClient)
 	dvh := handlers.NewDeviceHandler(database)
-	lh := handlers.NewLightHandler(database, mqttClient)
+	ah := handlers.NewAuthHandler(database)
+	acth := handlers.NewActuatorHandler(database, mqttClient)
+	hoh := handlers.NewHouseHandler(database)
+
+	jwtMiddleware := authmiddleware.JWTMiddleware(os.Getenv("JWT_SECRET"))
 
 	r.Route("/api", func(r chi.Router) {
-		r.Post("/door/open", dh.Open)
-		r.Post("/door/confirm", dh.Confirm)
-		r.Get("/door/events", dh.Events)
+		r.Post("/auth/register", ah.Register)
+		r.Post("/auth/login", ah.Login)
 
-		r.Post("/devices", dvh.Create)
-		r.Get("/devices", dvh.List)
+		r.Group(func(r chi.Router) {
+			r.Use(jwtMiddleware)
 
-		r.Post("/lights/on", lh.TurnOn)
-		r.Post("/lights/off", lh.TurnOff)
-		r.Get("/lights/events", lh.Events)
+			r.Post("/devices", dvh.Create)
+			r.Get("/devices", dvh.List)
+			r.Delete("/devices/{id}", dvh.Delete)
+
+			r.Post("/actuators", acth.Create)
+			r.Get("/actuators", acth.List)
+			r.Post("/actuators/{id}/on", acth.TurnOn)
+			r.Post("/actuators/{id}/off", acth.TurnOff)
+			r.Get("/actuators/{id}/events", acth.Events)
+
+			r.Post("/houses", hoh.Create)
+			r.Get("/houses", hoh.List)
+			r.Get("/houses/{id}/devices", hoh.GetDevices)
+			r.Post("/houses/{id}/members", hoh.AddMember)
+		})
 	})
 
 	port := os.Getenv("PORT")
