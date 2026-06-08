@@ -76,3 +76,5 @@ All under `/api`.
 - Responses are manual `json.NewEncoder(w).Encode(...)` — no response helpers.
 - All JSON payloads are plain `struct` fields decoded inline — no shared DTOs.
 - MQTT subscription happens in the handler constructor (`NewLightHandler`).
+
+version -> 0.0.1
