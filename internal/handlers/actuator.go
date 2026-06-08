@@ -21,10 +21,12 @@ type ActuatorHandler struct {
 	mqtt mqtt.Client
 }
 
-func NewActuatorHandler(db *sql.DB, mqtt mqtt.Client) *ActuatorHandler {
-	h := &ActuatorHandler{db: db, mqtt: mqtt}
-	h.subscribeEvents()
-	return h
+func NewActuatorHandler(db *sql.DB, mqttClient mqtt.Client) *ActuatorHandler {
+	return &ActuatorHandler{db: db, mqtt: mqttClient}
+}
+
+func (h *ActuatorHandler) SetMQTT(client mqtt.Client) {
+	h.mqtt = client
 }
 
 func topicForActuator(deviceID int64, actuatorType string, suffix string) string {

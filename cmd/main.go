@@ -15,20 +15,26 @@ import (
 	authmiddleware "smart-chapa/internal/middleware"
 )
 
-func newMQTTClient() mqtt.Client {
+func newMQTTClient(acth *handlers.ActuatorHandler) mqtt.Client {
 	opts := mqtt.NewClientOptions().
-		AddBroker("tls://" + os.Getenv("MQTT_HOST") + ":8883").
+		AddBroker("tls://"+os.Getenv("MQTT_HOST")+":8883").
 		SetUsername(os.Getenv("MQTT_USER")).
 		SetPassword(os.Getenv("MQTT_PASSWORD")).
 		SetClientID("go-backend").
-		SetAutoReconnect(true)
+		SetAutoReconnect(true).
+		SetCleanSession(false).
+		SetOnConnectHandler(func(client mqtt.Client) {
+			log.Println("MQTT conectado")
+			acth.SubscribeEvents()
+		}).
+		SetConnectionLostHandler(func(client mqtt.Client, err error) {
+			log.Printf("MQTT conexión perdida: %v", err)
+		})
 
 	client := mqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		log.Fatal("MQTT error:", token.Error())
 	}
-
-	log.Println("MQTT conectado")
 	return client
 }
 
@@ -41,7 +47,9 @@ func main() {
 	}
 	defer database.Close()
 
-	mqttClient := newMQTTClient()
+	acth := handlers.NewActuatorHandler(database, nil)
+	mqttClient := newMQTTClient(acth)
+	acth.SetMQTT(mqttClient)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -49,7 +57,6 @@ func main() {
 
 	dvh := handlers.NewDeviceHandler(database)
 	ah := handlers.NewAuthHandler(database)
-	acth := handlers.NewActuatorHandler(database, mqttClient)
 	hoh := handlers.NewHouseHandler(database)
 
 	jwtMiddleware := authmiddleware.JWTMiddleware(os.Getenv("JWT_SECRET"))
@@ -57,21 +64,17 @@ func main() {
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/auth/register", ah.Register)
 		r.Post("/auth/login", ah.Login)
-
 		r.Group(func(r chi.Router) {
 			r.Use(jwtMiddleware)
-
 			r.Post("/devices", dvh.Create)
 			r.Get("/devices", dvh.List)
 			r.Delete("/devices/{id}", dvh.Delete)
-
 			r.Post("/actuators", acth.Create)
 			r.Get("/actuators", acth.List)
 			r.Get("/actuators/{id}", acth.Get)
 			r.Post("/actuators/{id}/on", acth.TurnOn)
 			r.Post("/actuators/{id}/off", acth.TurnOff)
 			r.Get("/actuators/{id}/events", acth.Events)
-
 			r.Post("/houses", hoh.Create)
 			r.Get("/houses", hoh.List)
 			r.Get("/houses/{id}/devices", hoh.GetDevices)
@@ -83,7 +86,6 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-
 	log.Println("Servidor corriendo en puerto", port)
 	log.Fatal(http.ListenAndServe(":"+port, r))
 }
