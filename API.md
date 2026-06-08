@@ -256,9 +256,42 @@ Lista actuadores de un dispositivo.
 
 ---
 
+### `GET /actuators/{id}`
+
+Estado individual de un actuador.
+
+| Parámetro URL | Tipo |
+|---------------|------|
+| `id` | integer (ID del actuador) |
+
+**Respuesta `200`:**
+```json
+{
+  "id": 5,
+  "device_id": 3,
+  "name": "Luz Cocina",
+  "type": "lights",
+  "relay_num": 1,
+  "state": "off",
+  "created_at": "..."
+}
+```
+**Errores:** `404` (no existe), `403` (sin acceso)
+
+**Estado posible de `state`:**
+
+| Valor | Significado |
+|-------|-------------|
+| `off` | Apagado |
+| `on` | Encendido |
+| `pending_on` | Comando de encendido enviado, esperando confirmación del ESP32 |
+| `pending_off` | Comando de apagado enviado, esperando confirmación del ESP32 |
+
+---
+
 ### `POST /actuators/{id}/on`
 
-Enciende un actuador. Publica MQTT en `{device_id}/{type}/cmd` y guarda el evento.
+Enciende un actuador. Publica MQTT en `{device_id}/{type}/cmd` y guarda el evento en `pending_on`.
 
 | Parámetro URL | Tipo |
 |---------------|------|
@@ -268,13 +301,21 @@ Enciende un actuador. Publica MQTT en `{device_id}/{type}/cmd` y guarda el event
 
 **MQTT publish:** `3/lights/cmd` → `{"relay":1,"state":"turn_on"}`
 
+**Errores:** `409` (si ya está encendido, si hay un apagado pendiente)
+
 ---
 
 ### `POST /actuators/{id}/off`
 
 Apaga un actuador. Idem anterior con `"turn_off"`.
 
+| Parámetro URL | Tipo |
+|---------------|------|
+| `id` | integer (ID del actuador) |
+
 **Respuesta `200`:** `{"status": "ok"}`
+
+**Errores:** `409` (si ya está apagado, si hay un encendido pendiente)
 
 ---
 
@@ -292,13 +333,19 @@ Apaga un actuador. Idem anterior con `"turn_off"`.
   {
     "id": 102,
     "actuator_id": 5,
-    "state": "on",
+    "state": "pending_on",
     "source": "http",
+    "details": "{\"relay\":1,\"state\":\"turn_on\"}",
     "created_at": "2026-06-07 12:30:00"
   }
 ]
 ```
-`source` puede ser `"http"` (comando manual) o `"mqtt"` (respuesta del ESP32).
+
+| Campo | Descripción |
+|-------|-------------|
+| `state` | Estado en el momento del evento (`on`, `off`, `pending_on`, `pending_off`, o el payload raw si no se pudo parsear) |
+| `source` | `"http"` (comando desde la UI) o `"mqtt"` (respuesta del ESP32) |
+| `details` | Payload MQTT completo recibido del ESP32 (incluye `parse_us`, etc.) |
 
 ---
 
@@ -320,13 +367,24 @@ Apaga un actuador. Idem anterior con `"turn_off"`.
 
 ---
 
+### Máquina de estados
+
+```
+off  →  POST /on   →  pending_on  →  ESP32 responde  →  on
+on   →  POST /off  →  pending_off →  ESP32 responde  →  off
+```
+
+- Si el actuador está `pending_on` y se vuelve a pedir `POST /on`, se reenvía el comando MQTT (retry)
+- Si el actuador está `pending_off` y se vuelve a pedir `POST /off`, se reenvía el comando MQTT (retry)
+- No se puede enviar `off` si está `pending_on`, ni `on` si está `pending_off`
+
 ### ESP32 → Backend (subscribe)
 
 **Topic:** `{device_id}/{type}/status`  
 **Wildcard backend:** `+/+/status`  
 **Ejemplo:** `3/lights/status`
 
-**Payload confirmación:**
+**Payload confirmación (después de comando):**
 ```json
 {"relay":1,"state":"turn_on","parse_us":479}
 ```
@@ -342,8 +400,12 @@ Apaga un actuador. Idem anterior con `"turn_off"`.
 
 El backend normaliza los estados: `relay_on`/`turn_on` → `"on"`, `relay_off`/`turn_off` → `"off"`.
 
-Si el actuador está en `pending_on` o `pending_off`, cualquier respuesta del ESP32 resuelve el estado pendiente.
-Campos extras como `parse_us` se guardan en `details` del evento.
+Cuando el ESP32 responde:
+- Si el actuador está `pending_on` → pasa a `on`
+- Si el actuador está `pending_off` → pasa a `off`
+- Caso contrario → actualiza solo si el estado cambió
+
+El payload completo se guarda en el campo `details` del evento (incluye `parse_us` y cualquier otro campo extra).
 
 ---
 
@@ -355,5 +417,5 @@ Campos extras como `parse_us` se guardan en `details` del evento.
 | `401` | Unauthorized — token faltante o inválido |
 | `403` | Forbidden — el recurso existe pero no te pertenece |
 | `404` | Not Found — el recurso no existe |
-| `409` | Conflict — duplicado (email ya registrado, relay_num duplicado) |
+| `409` | Conflict — duplicado (email ya registrado, relay_num duplicado), o estado bloqueado (actuador pendiente, o ya en el estado solicitado) |
 | `500` | Internal Server Error — error inesperado del servidor |
