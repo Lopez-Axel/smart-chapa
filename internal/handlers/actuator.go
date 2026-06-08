@@ -43,7 +43,7 @@ func normalizeState(s string) string {
 	return s
 }
 
-func (h *ActuatorHandler) subscribeEvents() {
+func (h *ActuatorHandler) SubscribeEvents() {
 	token := h.mqtt.Subscribe("+/+/status", 1, func(client mqtt.Client, msg mqtt.Message) {
 		parts := strings.Split(msg.Topic(), "/")
 		if len(parts) != 3 {

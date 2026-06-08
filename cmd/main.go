@@ -22,7 +22,7 @@ func newMQTTClient(acth *handlers.ActuatorHandler) mqtt.Client {
 		SetPassword(os.Getenv("MQTT_PASSWORD")).
 		SetClientID("go-backend").
 		SetAutoReconnect(true).
-		SetCleanSession(false).
+		SetCleanSession(true).
 		SetOnConnectHandler(func(client mqtt.Client) {
 			log.Println("MQTT conectado")
 			acth.SubscribeEvents()
